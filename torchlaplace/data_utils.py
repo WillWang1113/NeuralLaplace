@@ -15,26 +15,32 @@ LOCAL = False
 
 def basic_collate_fn(
     batch,
-    time_steps,
+    time_steps=None,
     extrap=False,
     data="",
     device=DEVICE,
     data_type="train",
-    observe_step=1,
-    predict_step=1,
+    observe_stride=1,
+    predict_stride=1,
+    observe_steps=0.5,
 ):
     batch = torch.stack(batch)
+    if time_steps is None:
+        time_steps = batch[...,-1]
+        batch = batch[..., :-1]
+    elif len(time_steps.shape) < 2:
+        time_steps = time_steps.unsqueeze(0)
     data_dict = {
         "data": batch,
-        "time_steps": time_steps.unsqueeze(0),
+        "time_steps": time_steps,
     }
     data_dict = split_and_subsample_batch(
         data_dict,
         extrap=extrap,
-        data=data,
         data_type=data_type,
-        observe_step=observe_step,
-        predict_step=predict_step,
+        observe_stride=observe_stride,
+        predict_stride=predict_stride,
+        observe_steps=observe_steps,
     )
     return data_dict
 
@@ -65,9 +71,10 @@ def variable_time_collate_fn(
     lens = [len(x[1]) for x in batch]
     max_len = max(lens)
 
-    combined_tt = torch.stack(
-        [torch.cat([x[1], torch.zeros(max_len - l)], 0) for x, l in zip(batch, lens)], 0
-    ).double()
+    combined_tt = torch.stack([
+        torch.cat([x[1], torch.zeros(max_len - l)], 0)
+        for x, l in zip(batch, lens)
+    ], 0).double()
     combined_vals = torch.stack(
         [
             torch.cat([x[2], torch.zeros(max_len - l, D)], 0)
@@ -82,19 +89,14 @@ def variable_time_collate_fn(
         ],
         0,
     ).double()
-    combined_labels = (
-        torch.stack(
-            [torch.tensor(float("nan")) if x[4] is None else x[4] for x in batch], 0
-        )
-        .to(device)
-        .double()
-    )
+    combined_labels = (torch.stack(
+        [torch.tensor(float("nan")) if x[4] is None else x[4] for x in batch],
+        0).to(device).double())
     combined_labels = combined_labels.unsqueeze(-1)
 
     # Normalize data an time
-    combined_vals, _, _ = normalize_masked_data(
-        combined_vals, combined_mask, data_min, data_max
-    )
+    combined_vals, _, _ = normalize_masked_data(combined_vals, combined_mask,
+                                                data_min, data_max)
     combined_tt = combined_tt / 48.0
 
     data_dict = {
@@ -104,36 +106,28 @@ def variable_time_collate_fn(
         "labels": combined_labels,  # (batch, 1)
     }
 
-    data_dict = split_and_subsample_batch(data_dict, extrap=extrap, data_type=data_type)
+    data_dict = split_and_subsample_batch(data_dict,
+                                          extrap=extrap,
+                                          data_type=data_type)
     return data_dict
 
 
-def split_and_subsample_batch(
-    data_dict, extrap=False, data="", data_type="train", observe_step=1, predict_step=1
-):
-    if data_type == "train":
-        # Training set
-        if extrap:
-            processed_dict = split_data_extrap(
-                data_dict,
-                dataset=data,
-                observe_step=observe_step,
-                predict_step=predict_step,
-            )
-        else:
-            processed_dict = split_data_interp(data_dict)
+def split_and_subsample_batch(data_dict,
+                              extrap=False,
+                              data_type="train",
+                              observe_stride=1,
+                              predict_stride=1,
+                              observe_steps=0.5):
+    if extrap:
+        processed_dict = split_data_extrap(
+            data_dict,
+            observe_stride=observe_stride,
+            predict_stride=predict_stride,
+            observe_steps=observe_steps
+        )
     else:
-        # Test set
-        if extrap:
-            processed_dict = split_data_extrap(
-                data_dict,
-                dataset=data,
-                observe_step=observe_step,
-                predict_step=predict_step,
-            )
-        else:
-            processed_dict = split_data_interp(data_dict)
-
+        processed_dict = split_data_interp(data_dict)
+    
     # add mask
     processed_dict = add_mask(processed_dict)
     return processed_dict
@@ -169,19 +163,18 @@ def sample_standard_gaussian(mu, sigma):
     device = get_device(mu)
 
     d = torch.distributions.normal.Normal(
-        torch.Tensor([0.0]).to(device), torch.Tensor([1.0]).to(device)
-    )
+        torch.Tensor([0.0]).to(device),
+        torch.Tensor([1.0]).to(device))
     r = d.sample(mu.size()).squeeze(-1)
     return r * sigma.float() + mu.float()
 
 
 def split_train_val_test(data, train_frac=0.6, val_frac=0.2):
     n_samples = len(data)
-    data_train = data[: int(n_samples * train_frac)]
-    data_val = data[
-        int(n_samples * train_frac) : int(n_samples * (train_frac + val_frac))
-    ]
-    data_test = data[int(n_samples * (train_frac + val_frac)) :]
+    data_train = data[:int(n_samples * train_frac)]
+    data_val = data[int(n_samples * train_frac):int(n_samples *
+                                                    (train_frac + val_frac))]
+    data_test = data[int(n_samples * (train_frac + val_frac)):]
     return data_train, data_val, data_test
 
 
@@ -198,7 +191,8 @@ def linspace_vector(start, end, n_points):
         # start and end are vectors
         res = torch.Tensor()
         for i in range(0, start.size(0)):
-            res = torch.cat((res, torch.linspace(start[i], end[i], n_points)), 0)
+            res = torch.cat((res, torch.linspace(start[i], end[i], n_points)),
+                            0)
         res = torch.t(res.reshape(start.size(0), n_points))
     return res
 
@@ -208,7 +202,11 @@ def reverse(tensor):
     return tensor[idx]
 
 
-def create_net(n_inputs, n_outputs, n_layers=1, n_units=100, nonlinear=nn.Tanh):
+def create_net(n_inputs,
+               n_outputs,
+               n_layers=1,
+               n_units=100,
+               nonlinear=nn.Tanh):
     layers = [nn.Linear(n_inputs, n_units)]
     for i in range(n_layers):
         layers.append(nonlinear())
@@ -279,23 +277,33 @@ def shift_outputs(outputs, first_datapoint=None):
     return outputs
 
 
-def split_data_extrap(data_dict, dataset="", observe_step=1, predict_step=1):
-    n_observed_tp = data_dict["data"].size(1) // 2
-    if dataset == "hopper":
-        n_observed_tp = data_dict["data"].size(1) // 3
+def split_data_extrap(data_dict,
+                      observe_stride=1,
+                      predict_stride=1,
+                      observe_steps=100):
+    n_observed_tp = observe_steps
+    # n_observed_tp = data_dict["data"].size(1) // 2
 
     split_dict = {
-        "observed_data": data_dict["data"][:, :n_observed_tp, :][
-            :, ::observe_step, :
-        ].clone(),
-        "observed_tp": data_dict["time_steps"][:, :n_observed_tp][
-            :, ::observe_step
-        ].clone(),
+        "observed_data":
+        data_dict["data"][:, :n_observed_tp, :]
+        [:, ::observe_stride, :].clone(),
+        "observed_tp":
+        data_dict["time_steps"][:, :n_observed_tp]
+        [:, ::observe_stride].clone(),
+
+        # Predicts both on the observed and future data (intra and extrap)
+        # "data_to_predict":
+        # data_dict["data"][:, :, :][:, ::predict_stride, :].clone(),
+        # "tp_to_predict":
+        # data_dict["time_steps"][:, :][:, ::predict_stride].clone(),
+
+        # # Only predict on the future steps (only extrap)
         "data_to_predict": data_dict["data"][:, n_observed_tp:, :][
-            :, ::predict_step, :
+            :, ::predict_stride, :
         ].clone(),
         "tp_to_predict": data_dict["time_steps"][:, n_observed_tp:][
-            :, ::predict_step
+            :, ::predict_stride
         ].clone(),
     }
 
@@ -304,8 +312,10 @@ def split_data_extrap(data_dict, dataset="", observe_step=1, predict_step=1):
     split_dict["labels"] = None
 
     if ("mask" in data_dict) and (data_dict["mask"] is not None):
-        split_dict["observed_mask"] = data_dict["mask"][:, :n_observed_tp].clone()
-        split_dict["mask_predicted_data"] = data_dict["mask"][:, n_observed_tp:].clone()
+        split_dict["observed_mask"] = data_dict[
+            "mask"][:, :n_observed_tp].clone()
+        split_dict["mask_predicted_data"] = data_dict[
+            "mask"][:, n_observed_tp:].clone()
 
     if ("labels" in data_dict) and (data_dict["labels"] is not None):
         split_dict["labels"] = data_dict["labels"].clone()
@@ -374,9 +384,9 @@ def compute_loss_all_batches(
     all_test_labels = torch.Tensor([]).to(device)
 
     for batch_dict in dl:
-        results = model.compute_all_losses(
-            batch_dict, n_traj_samples=n_traj_samples, kl_coef=kl_coef
-        )
+        results = model.compute_all_losses(batch_dict,
+                                           n_traj_samples=n_traj_samples,
+                                           kl_coef=kl_coef)
 
         if classify and data != "hopper":
             n_labels = model.n_labels  # batch_dict['labels'].size(-1)
@@ -385,13 +395,14 @@ def compute_loss_all_batches(
             classif_predictions = torch.cat(
                 (
                     classif_predictions,
-                    results["label_predictions"].reshape(n_traj_samples, -1, n_labels),
+                    results["label_predictions"].reshape(
+                        n_traj_samples, -1, n_labels),
                 ),
                 1,
             )
             all_test_labels = torch.cat(
-                (all_test_labels, batch_dict["labels"].reshape(-1, n_labels)), 0
-            )
+                (all_test_labels, batch_dict["labels"].reshape(-1, n_labels)),
+                0)
 
         for key in total.keys():
             if key in results:
@@ -416,12 +427,11 @@ def compute_loss_all_batches(
 
             total["acc"] = 0.0  # AUC score
             if torch.sum(all_test_labels) != 0.0:
-                print(f"Number of labeled examples: {len(all_test_labels.reshape(-1))}")
                 print(
-                    "Number of examples with mortality 1: {}".format(
-                        torch.sum(all_test_labels == 1.0)
-                    )
+                    f"Number of labeled examples: {len(all_test_labels.reshape(-1))}"
                 )
+                print("Number of examples with mortality 1: {}".format(
+                    torch.sum(all_test_labels == 1.0)))
 
                 # Cannot compute AUC with only 1 class
                 import sklearn as sk
@@ -439,22 +449,20 @@ def compute_loss_all_batches(
             all_test_labels = all_test_labels.repeat(n_traj_samples, 1, 1)
 
             labeled_tp = torch.sum(all_test_labels, -1, keepdim=True) > 0.0
-            labeled_tp = labeled_tp.repeat_interleave(all_test_labels.shape[-1], -1)
+            labeled_tp = labeled_tp.repeat_interleave(
+                all_test_labels.shape[-1], -1)
 
             all_test_labels = all_test_labels[labeled_tp].view(
-                -1, all_test_labels.shape[-1]
-            )
+                -1, all_test_labels.shape[-1])
             classif_predictions = classif_predictions[labeled_tp].view(
-                -1, all_test_labels.shape[-1]
-            )
+                -1, all_test_labels.shape[-1])
 
             # classif_predictions and all_test_labels are in on-hot-encoding -- convert to class ids
             _, pred_class_id = torch.max(classif_predictions, -1)
             _, class_labels = torch.max(all_test_labels, -1)
 
-            total["acc"] = torch.sum(class_labels == pred_class_id).item() / sum(
-                class_labels.shape
-            )
+            total["acc"] = torch.sum(
+                class_labels == pred_class_id).item() / sum(class_labels.shape)
 
     return total
 
@@ -484,6 +492,7 @@ def create_classifier(z0_dim, n_labels):
 
 
 class VAE_Baseline(nn.Module):
+
     def __init__(
         self,
         input_dim,
@@ -537,8 +546,7 @@ class VAE_Baseline(nn.Module):
         if mask is not None:
             mask = mask.repeat(pred_y.size(0), 1, 1, 1)
         log_density_data = masked_gaussian_log_density(
-            pred_y, truth_repeated, obsrv_std=self.obsrv_std, mask=mask
-        )
+            pred_y, truth_repeated, obsrv_std=self.obsrv_std, mask=mask)
         log_density_data = log_density_data.permute(1, 0)
         log_density = torch.mean(log_density_data, 1)
 
@@ -606,7 +614,8 @@ class VAE_Baseline(nn.Module):
             mask=batch_dict["mask_predicted_data"],
         )
 
-        pois_log_likelihood = torch.Tensor([0.0]).to(batch_dict["data_to_predict"])
+        pois_log_likelihood = torch.Tensor([0.0]).to(
+            batch_dict["data_to_predict"])
         if self.use_poisson_proc:
             pois_log_likelihood = compute_poisson_proc_likelihood(
                 batch_dict["data_to_predict"],
@@ -622,12 +631,10 @@ class VAE_Baseline(nn.Module):
         ce_loss = torch.Tensor([0.0]).to(batch_dict["data_to_predict"])
         if (batch_dict["labels"] is not None) and self.use_binary_classif:
 
-            if (batch_dict["labels"].size(-1) == 1) or (
-                len(batch_dict["labels"].size()) == 1
-            ):
-                ce_loss = compute_binary_CE_loss(
-                    info["label_predictions"], batch_dict["labels"]
-                )
+            if (batch_dict["labels"].size(-1) == 1) or (len(
+                    batch_dict["labels"].size()) == 1):
+                ce_loss = compute_binary_CE_loss(info["label_predictions"],
+                                                 batch_dict["labels"])
             else:
                 ce_loss = compute_multiclass_CE_loss(
                     info["label_predictions"],
@@ -676,14 +683,15 @@ def get_mask(x):
 
 
 class Encoder_z0_ODE_RNN(nn.Module):
+
     def __init__(
-        self,
-        latent_dim,
-        input_dim,
-        z0_diffeq_solver=None,
-        z0_dim=None,
-        n_gru_units=100,
-        device=torch.device("cpu"),
+            self,
+            latent_dim,
+            input_dim,
+            z0_diffeq_solver=None,
+            z0_dim=None,
+            n_gru_units=100,
+            device=torch.device("cpu"),
     ):
         super().__init__()
 
@@ -751,11 +759,10 @@ class Encoder_z0_ODE_RNN(nn.Module):
 
 
 class Decoder(nn.Module):
+
     def __init__(self, latent_dim, input_dim):
         super().__init__()
-        decoder = nn.Sequential(
-            nn.Linear(latent_dim, input_dim),
-        )
+        decoder = nn.Sequential(nn.Linear(latent_dim, input_dim), )
         init_network_weights(decoder)
         self.decoder = decoder
 
@@ -768,8 +775,7 @@ def gaussian_log_likelihood(mu_2d, data_2d, obsrv_std, indices=None):
 
     if n_data_points > 0:
         gaussian = Independent(
-            Normal(loc=mu_2d, scale=obsrv_std.repeat(n_data_points)), 1
-        )
+            Normal(loc=mu_2d, scale=obsrv_std.repeat(n_data_points)), 1)
         log_prob = gaussian.log_prob(data_2d)
         log_prob = log_prob / n_data_points
     else:
@@ -777,7 +783,8 @@ def gaussian_log_likelihood(mu_2d, data_2d, obsrv_std, indices=None):
     return log_prob
 
 
-def poisson_log_likelihood(masked_log_lambdas, masked_data, indices, int_lambdas):
+def poisson_log_likelihood(masked_log_lambdas, masked_data, indices,
+                           int_lambdas):
     # masked_log_lambdas and masked_data
     n_data_points = masked_data.size()[-1]
 
@@ -808,7 +815,8 @@ def compute_binary_CE_loss(label_predictions, mortality_label):
     label_predictions = label_predictions[:, idx_not_nan]
     mortality_label = mortality_label[idx_not_nan]
 
-    if torch.sum(mortality_label == 0.0) == 0 or torch.sum(mortality_label == 1.0) == 0:
+    if torch.sum(mortality_label == 0.0) == 0 or torch.sum(
+            mortality_label == 1.0) == 0:
         print(
             "Warning: all examples in a batch belong to the same class -- please increase the batch size."
         )
@@ -839,8 +847,7 @@ def compute_multiclass_CE_loss(label_predictions, true_label, mask):
     true_label = true_label.repeat(n_traj_samples, 1, 1)
 
     label_predictions = label_predictions.reshape(
-        n_traj_samples * n_traj * n_tp, n_dims
-    )
+        n_traj_samples * n_traj * n_tp, n_dims)
     true_label = true_label.reshape(n_traj_samples * n_traj * n_tp, n_dims)
 
     # choose time points with at least one measurement
@@ -864,7 +871,8 @@ def compute_multiclass_CE_loss(label_predictions, true_label, mask):
 
     res = []
     for i in range(true_label.size(0)):
-        pred_masked = torch.masked_select(label_predictions[i], pred_mask[i].bool())
+        pred_masked = torch.masked_select(label_predictions[i],
+                                          pred_mask[i].bool())
         labels = torch.masked_select(true_label[i], label_mask[i].bool())
 
         pred_masked = pred_masked.reshape(-1, n_dims)
@@ -890,12 +898,14 @@ def compute_masked_likelihood(mu, data, mask, likelihood_func):
     for i in range(n_traj_samples):
         for k in range(n_traj):
             for j in range(n_dims):
-                data_masked = torch.masked_select(
-                    data[i, k, :, j], mask[i, k, :, j].bool()
-                )
+                data_masked = torch.masked_select(data[i, k, :, j],
+                                                  mask[i, k, :, j].bool())
 
-                mu_masked = torch.masked_select(mu[i, k, :, j], mask[i, k, :, j].bool())
-                log_prob = likelihood_func(mu_masked, data_masked, indices=(i, k, j))
+                mu_masked = torch.masked_select(mu[i, k, :, j], mask[i, k, :,
+                                                                     j].bool())
+                log_prob = likelihood_func(mu_masked,
+                                           data_masked,
+                                           indices=(i, k, j))
                 res.append(log_prob)
     # shape: [n_traj*n_traj_samples, 1]
 
@@ -928,16 +938,18 @@ def masked_gaussian_log_density(mu, data, obsrv_std, mask=None):
     if mask is None:
         mu_flat = mu.reshape(n_traj_samples * n_traj, n_timepoints * n_dims)
         n_traj_samples, n_traj, n_timepoints, n_dims = data.size()
-        data_flat = data.reshape(n_traj_samples * n_traj, n_timepoints * n_dims)
+        data_flat = data.reshape(n_traj_samples * n_traj,
+                                 n_timepoints * n_dims)
 
         res = gaussian_log_likelihood(mu_flat, data_flat, obsrv_std)
         res = res.reshape(n_traj_samples, n_traj).transpose(0, 1)
     else:
         # Compute the likelihood per patient so that we don't priorize patients with more measurements
         def func(mu, data, indices):
-            return gaussian_log_likelihood(
-                mu, data, obsrv_std=obsrv_std, indices=indices
-            )
+            return gaussian_log_likelihood(mu,
+                                           data,
+                                           obsrv_std=obsrv_std,
+                                           indices=indices)
 
         res = compute_masked_likelihood(mu, data, mask, func)
     return res
@@ -974,7 +986,8 @@ def compute_mse(mu, data, mask=None):
     if mask is None:
         mu_flat = mu.reshape(n_traj_samples * n_traj, n_timepoints * n_dims)
         n_traj_samples, n_traj, n_timepoints, n_dims = data.size()
-        data_flat = data.reshape(n_traj_samples * n_traj, n_timepoints * n_dims)
+        data_flat = data.reshape(n_traj_samples * n_traj,
+                                 n_timepoints * n_dims)
         res = mse(mu_flat, data_flat)
     else:
         # Compute the likelihood per patient so that we don't priorize patients with more measurements
@@ -1001,9 +1014,9 @@ def compute_poisson_proc_likelihood(truth, pred_y, info, mask=None):
         def f(log_lam, data, indices):
             return poisson_log_likelihood(log_lam, data, indices, int_lambda)
 
-        poisson_log_l = compute_masked_likelihood(
-            info["log_lambda_y"], truth_repeated, mask_repeated, f
-        )
+        poisson_log_l = compute_masked_likelihood(info["log_lambda_y"],
+                                                  truth_repeated,
+                                                  mask_repeated, f)
         poisson_log_l = poisson_log_l.permute(1, 0)
         # Take mean over n_traj
         # poisson_log_l = torch.mean(poisson_log_l, 1)

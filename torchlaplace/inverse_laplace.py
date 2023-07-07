@@ -1091,7 +1091,7 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         self,
         ilt_reconstruction_terms=33,
         alpha=1.0e-3,
-        tol=None,
+        tol=1e-8,
         scale=2.0,
         eps=1e-6,
         torch_float_datatype=TORCH_FLOAT_DATATYPE,
@@ -1134,7 +1134,8 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         if time_max is not None:
             tmax = torch.Tensor([time_max]).to(device) * torch.ones_like(t)
         else:
-            tmax = t  # + self.eps
+            tmax = ti.max() * torch.ones_like(t)
+            # tmax = t  # + self.eps
         if Ti is not None:
             if type(Ti) != self.torch_float_datatype:
                 raise ValueError("Invalid Ti shapes")

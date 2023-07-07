@@ -98,15 +98,24 @@ def laplace_reconstruct(
     else:
         raise ValueError("Unsupported time tensor shape, please use (batch, time_dim)")
     batch_dim = p.shape[0]
-    s, T = ilt.compute_s(torch.squeeze(t))
+    s, T = ilt.compute_s(torch.squeeze(t))  # s shape: [timesteps, s_recon_terms], T shape: [timesteps]
     T = T
+    # print(s.shape)
+    # print(T.shape)
+
+
+    # TODO: Direct constrain s ?
+    # s_imag_min = 5
+    # s_imag_max = 20
+    # s_imag_scale = s_imag_max - s_imag_min
+    # s.imag = (s.imag - s.imag.min()) / (s.imag.max() - s.imag.min()) * s_imag_scale + s_imag_min
     if use_sphere_projection:
         thetam, phim = complex_to_spherical_riemann(
             torch.flatten(s.real), torch.flatten(s.imag)
         )
-        thetam = torch.reshape(thetam, s.real.shape)
-        phim = torch.reshape(phim, s.imag.shape)
-        sph_coords = torch.cat((thetam, phim), 1)
+        thetam = torch.reshape(thetam, s.real.shape)    # thetam shape: [timesteps, s_recon_terms]
+        phim = torch.reshape(phim, s.imag.shape)    # phim shape: [timesteps, s_recon_terms]
+        sph_coords = torch.cat((thetam, phim), 1)   # sph_coords shape: [timesteps, 2 * s_recon_terms]
         s_terms_dim = thetam.shape[1]
         if len(t.shape) == 2 and batch_dim == t.shape[0]:
             inputs = torch.cat(
@@ -124,9 +133,13 @@ def laplace_reconstruct(
                 ),
                 2,
             )
+        # print(inputs.shape)
         theta, phi = laplace_rep_func(inputs)
+        # print(theta.shape)
+        # print(phi.shape)
         sr = spherical_to_complex(theta, phi)
         ss = sr.view(-1, time_dim, recon_dim, s_terms_dim)
+        # print(ss.shape)
     else:
         s_split = torch.cat((s.real, s.imag), 1)
         s_terms_dim = s.shape[1]
