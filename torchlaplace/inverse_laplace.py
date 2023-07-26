@@ -1094,6 +1094,7 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         tol=1e-8,
         scale=2.0,
         eps=1e-6,
+        start_k = 0,
         torch_float_datatype=TORCH_FLOAT_DATATYPE,
         torch_complex_datatype=TORCH_COMPLEX_DATATYPE,
     ):
@@ -1112,8 +1113,7 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         self.nt = ilt_reconstruction_terms  # number of terms in approximation
         # scaling factor (likely tune-able, but 2 is typical)
         self.scale = torch.Tensor([scale]).to(device)
-        self.k = torch.arange(
-            self.nt, dtype=torch_float_datatype, device=torch.device(device)
+        self.k = torch.arange(start=start_k, end=start_k+self.nt, dtype=torch_float_datatype, device=torch.device(device)
         )
         self.eps = eps
         self.torch_float_datatype = torch_float_datatype

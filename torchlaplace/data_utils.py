@@ -118,15 +118,38 @@ def split_and_subsample_batch(data_dict,
                               observe_stride=1,
                               predict_stride=1,
                               observe_steps=0.5):
-    if extrap:
-        processed_dict = split_data_extrap(
-            data_dict,
-            observe_stride=observe_stride,
-            predict_stride=predict_stride,
-            observe_steps=observe_steps
-        )
+    # if extrap:
+    #     processed_dict = split_data_extrap(
+    #         data_dict,
+    #         observe_stride=observe_stride,
+    #         predict_stride=predict_stride,
+    #         observe_steps=observe_steps
+    #     )
+    # else:
+    #     processed_dict = split_data_interp(data_dict)
+
+    if data_type == "train":
+        if extrap:
+            processed_dict = split_data_extrap(
+                data_dict,
+                observe_stride=observe_stride,
+                predict_stride=predict_stride,
+                observe_steps=observe_steps
+            )
+        else:
+            processed_dict = split_data_interp(data_dict)
     else:
-        processed_dict = split_data_interp(data_dict)
+        if extrap:
+            processed_dict = split_data_extrap(
+                data_dict,
+                observe_stride=observe_stride,
+                predict_stride=predict_stride,
+                observe_steps=observe_steps
+            )
+        else:
+            processed_dict = split_data_interp(data_dict)
+
+
     
     # add mask
     processed_dict = add_mask(processed_dict)
@@ -292,9 +315,19 @@ def split_data_extrap(data_dict,
         data_dict["time_steps"][:, :n_observed_tp]
         [:, ::observe_stride].clone(),
 
-        # Predicts both on the observed and future data (intra and extrap)
+        # * Predicts both on the observed and future data
+        # * Y = observed data + future data
+        # * \hat{Y} = observed data + future data
         # "data_to_predict":
         # data_dict["data"][:, :, :][:, ::predict_stride, :].clone(),
+        # "tp_to_predict":
+        # data_dict["time_steps"][:, :][:, ::predict_stride].clone(),
+
+        # * Predicts both on the observed and future data (for Hierarchical NL)
+        # * Y = future data
+        # * \hat{Y} = observed data + future data
+        # "data_to_predict":
+        # data_dict["data"][:, n_observed_tp:, :][:, ::predict_stride, :].clone(),
         # "tp_to_predict":
         # data_dict["time_steps"][:, :][:, ::predict_stride].clone(),
 

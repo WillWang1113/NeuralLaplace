@@ -28,6 +28,7 @@ def laplace_reconstruct(
     recon_dim=None,
     ilt_algorithm="fourier",
     use_sphere_projection=True,
+    include_s_recon_terms=True,
     ilt_reconstruction_terms=33,
     options=None,
     compute_deriv=False,
@@ -87,8 +88,7 @@ def laplace_reconstruct(
         )
     else:
         ilt = ILT_ALGORITHMS[ilt_algorithm](
-            ilt_reconstruction_terms=ilt_reconstruction_terms, **options
-        )
+            ilt_reconstruction_terms=ilt_reconstruction_terms, **options)
     if len(t.shape) == 0:
         time_dim = 1
     elif len(t.shape) == 1:
@@ -96,51 +96,141 @@ def laplace_reconstruct(
     elif len(t.shape) == 2:
         time_dim = t.shape[1]
     else:
-        raise ValueError("Unsupported time tensor shape, please use (batch, time_dim)")
+        raise ValueError(
+            "Unsupported time tensor shape, please use (batch, time_dim)")
     batch_dim = p.shape[0]
-    s, T = ilt.compute_s(torch.squeeze(t))  # s shape: [timesteps, s_recon_terms], T shape: [timesteps]
+    s, T = ilt.compute_s(torch.squeeze(
+        t))  # s shape: [timesteps, s_recon_terms], T shape: [timesteps]
     T = T
     # print(s.shape)
     # print(T.shape)
 
-
-    # TODO: Direct constrain s ?
-    # s_imag_min = 5
-    # s_imag_max = 20
-    # s_imag_scale = s_imag_max - s_imag_min
-    # s.imag = (s.imag - s.imag.min()) / (s.imag.max() - s.imag.min()) * s_imag_scale + s_imag_min
     if use_sphere_projection:
-        thetam, phim = complex_to_spherical_riemann(
-            torch.flatten(s.real), torch.flatten(s.imag)
-        )
-        thetam = torch.reshape(thetam, s.real.shape)    # thetam shape: [timesteps, s_recon_terms]
-        phim = torch.reshape(phim, s.imag.shape)    # phim shape: [timesteps, s_recon_terms]
-        sph_coords = torch.cat((thetam, phim), 1)   # sph_coords shape: [timesteps, 2 * s_recon_terms]
+        thetam, phim = complex_to_spherical_riemann(torch.flatten(s.real),
+                                                    torch.flatten(s.imag))
+        thetam = torch.reshape(
+            thetam, s.real.shape)  # thetam shape: [timesteps, s_recon_terms]
+        phim = torch.reshape(
+            phim, s.imag.shape)  # phim shape: [timesteps, s_recon_terms]
         s_terms_dim = thetam.shape[1]
+
         if len(t.shape) == 2 and batch_dim == t.shape[0]:
+            # TODO: s_recon_terms independent
             inputs = torch.cat(
                 (
                     sph_coords.view(batch_dim, time_dim, -1),
-                    p.view(batch_dim, 1, -1).repeat(1, time_dim, 1),
+                    p,
                 ),
-                2,
+                axis=-1,
             )
+
         else:
-            inputs = torch.cat(
-                (
-                    sph_coords.view(1, time_dim, -1).repeat(batch_dim, 1, 1),
-                    p.view(batch_dim, 1, -1).repeat(1, time_dim, 1),
-                ),
-                2,
-            )
-        # print(inputs.shape)
+            if include_s_recon_terms:
+                # * Original Concat
+                sph_coords = torch.concat(
+                    (thetam, phim), axis=-1
+                )  # sph_coords shape: [timesteps, s_recon_terms * 2]
+                # print(sph_coords)
+                # ****** simplication version (only for fixed t) ******
+                sph_coords = sph_coords[[0], ...]
+                sph_coords = sph_coords.repeat(
+                    batch_dim,
+                    1)  # sph_coords shape: [batch_size, s_recon_terms * 2]
+            else:
+                # * Stack
+                sph_coords = torch.stack(
+                    (thetam, phim),
+                    axis=-1)  # sph_coords shape: [timesteps, s_recon_terms, 2]
+                # ****** simplication version (only for fixed t) ******
+                sph_coords = sph_coords[[0], ...]
+                sph_coords = sph_coords.repeat(
+                    batch_dim, 1,
+                    1)  # sph_coords shape: [batch_size, s_recon_terms, 2]
+                p = p.view(batch_dim, 1, -1).repeat(
+                    1, s_terms_dim,
+                    1)  # p shape: [batchsize, s_recon_terms, latent_dim]
+            inputs = torch.cat((sph_coords, p), axis=-1)
+
+
+
+
+        # # * Original Concat
+        # sph_coords = torch.concat(
+        #     (thetam, phim),
+        #     axis=-1)  # sph_coords shape: [timesteps, s_recon_terms * 2]
+        # # print(sph_coords)
+
+        # # * STACK
+        # # sph_coords = torch.stack(
+        # #     (thetam, phim),
+        # #     axis=-1)  # sph_coords shape: [timesteps, s_recon_terms, 2]
+
+        # # ****** Original Codel ******
+        # # print(p)
+        # # p = p.view(batch_dim, 1, -1).repeat(
+        # #     1, time_dim,
+        # #     1)  # p shape: [batchsize, timesteps, latent_dim]
+
+        # # ****** simplication version (only for fixed t) ******
+        # # sph_coords: time indepent and batch independent
+        # # p: time independent
+        # sph_coords = sph_coords[0, ...]
+
+        # # ****** s independent version (=RNN) ******
+        # # p = p.view(batch_dim, 1, -1).repeat(
+        # #     1, s_terms_dim,
+        # #     1)  # p shape: [batchsize, s_recon_terms, latent_dim]
+        # if len(t.shape) == 2 and batch_dim == t.shape[0]:
+        #     # TODO: s_recon_terms independent
+        #     inputs = torch.cat(
+        #         (
+        #             sph_coords.view(batch_dim, time_dim, -1),
+        #             p,
+        #         ),
+        #         axis=-1,
+        #     )
+
+        # else:
+        #     # keep sterms as feature, delete timesteps --> orig_spd1
+        #     inputs = torch.cat(
+        #         (
+        #             sph_coords.view(1, -1).repeat(batch_dim, 1),
+        #             p,
+        #         ),
+        #         axis=-1,
+        #     )  # inputs shape: [batchsize, s_recon_terms * 2 + latent_dim]
+
+        #     # delete timesteps, delete sterms --> orig_spd2
+        #     # inputs = torch.cat(
+        #     #     (
+        #     #         sph_coords.view(1, -1, 2).repeat(batch_dim, 1, 1),
+        #     #         p,
+        #     #     ),
+        #     #     axis=-1,
+        #     # )  # inputs shape: [batchsize, s_recon_terms, latent_dim + 2]
+
+        #     # ****** Original Codel ******
+        #     # inputs = torch.cat(
+        #     #     (
+        #     #         sph_coords.view(1, time_dim, -1).repeat(batch_dim, 1, 1),
+        #     #         p,
+        #     #     ),
+        #     #     axis=-1,
+        #     # )  # inputs shape: [batchsize, timesteps, s_recon_terms * 2 + latent_dim]
+
         theta, phi = laplace_rep_func(inputs)
+
+        # * Repeat time_steps times
+        # theta = theta.repeat(1, time_dim, 1)
+        # phi = phi.repeat(1, time_dim, 1)
         # print(theta.shape)
         # print(phi.shape)
         sr = spherical_to_complex(theta, phi)
         ss = sr.view(-1, time_dim, recon_dim, s_terms_dim)
+        # print(ss[0][0])
         # print(ss.shape)
     else:
+        # TODO: s_recon_terms independent
         s_split = torch.cat((s.real, s.imag), 1)
         s_terms_dim = s.shape[1]
         inputs = torch.cat(
@@ -152,14 +242,13 @@ def laplace_reconstruct(
         )
         s_real, s_imag = laplace_rep_func(inputs)
         so = torch.view_as_complex(
-            torch.stack((torch.flatten(s_real), torch.flatten(s_imag)), 1)
-        )
+            torch.stack((torch.flatten(s_real), torch.flatten(s_imag)), 1))
         sr = torch.reshape(so, s_real.shape)
         ss = sr.view(-1, time_dim, recon_dim, s_terms_dim)
     if len(t.shape) == 2 and batch_dim == t.shape[0]:
-        return ilt.line_integrate_all_multi_batch_time(
-            ss, t.view(-1, time_dim), T.view(-1, time_dim)
-        )
+        return ilt.line_integrate_all_multi_batch_time(ss,
+                                                       t.view(-1, time_dim),
+                                                       T.view(-1, time_dim))
     else:
         return ilt.line_integrate_all_multi(ss, torch.squeeze(t), T)
 
@@ -175,7 +264,8 @@ def _check_inputs(
     options,
 ):
     if not isinstance(laplace_rep_func, nn.Module):
-        raise RuntimeError("laplace_rep_func must be a descendant of torch.nn.Module")
+        raise RuntimeError(
+            "laplace_rep_func must be a descendant of torch.nn.Module")
     if not isinstance(p, Tensor):
         raise RuntimeError("p must be a torch.Tensor type")
     if not isinstance(t, Tensor):
@@ -185,15 +275,12 @@ def _check_inputs(
     if ilt_algorithm not in ILT_ALGORITHMS:
         raise ValueError(
             'Invalid ILT algorithm "{}". Must be one of {}'.format(
-                ilt_algorithm, '{"' + '", "'.join(ILT_ALGORITHMS.keys()) + '"}.'
-            )
-        )
+                ilt_algorithm,
+                '{"' + '", "'.join(ILT_ALGORITHMS.keys()) + '"}.'))
     if (ilt_reconstruction_terms % 2 == 0) and (ilt_algorithm != "cme"):
         raise ValueError(
-            'Invalid "ilt_reconstruction_terms", must be an odd input number. Was given an even number of {}'.format(
-                ilt_reconstruction_terms
-            )
-        )
+            'Invalid "ilt_reconstruction_terms", must be an odd input number. Was given an even number of {}'
+            .format(ilt_reconstruction_terms))
     if options is None:
         options = {}
     else:
