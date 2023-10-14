@@ -98,10 +98,12 @@ def laplace_reconstruct(
     else:
         raise ValueError(
             "Unsupported time tensor shape, please use (batch, time_dim)")
+    # print(t.shape)
     batch_dim = p.shape[0]
     s, T = ilt.compute_s(torch.squeeze(
         t))  # s shape: [timesteps, s_recon_terms], T shape: [timesteps]
     T = T
+    # print(T)
     # print(s.shape)
     # print(T.shape)
 
@@ -221,8 +223,9 @@ def laplace_reconstruct(
         theta, phi = laplace_rep_func(inputs)
 
         # * Repeat time_steps times
-        # theta = theta.repeat(1, time_dim, 1)
-        # phi = phi.repeat(1, time_dim, 1)
+        theta = theta.repeat(1, time_dim, 1)
+        phi = phi.repeat(1, time_dim, 1)
+        # print(time_dim)
         # print(theta.shape)
         # print(phi.shape)
         sr = spherical_to_complex(theta, phi)

@@ -17,16 +17,18 @@ def basic_collate_fn(
     batch,
     time_steps=None,
     extrap=False,
-    data="",
-    device=DEVICE,
+    hist_feature=slice(0, None),
+    fcst_feature=slice(0, None),
+    avail_fcst_feature=slice(0, None),
     data_type="train",
     observe_stride=1,
     predict_stride=1,
+    avail_fcst_stride=1,
     observe_steps=0.5,
 ):
     batch = torch.stack(batch)
     if time_steps is None:
-        time_steps = batch[...,-1]
+        time_steps = batch[..., -1]
         batch = batch[..., :-1]
     elif len(time_steps.shape) < 2:
         time_steps = time_steps.unsqueeze(0)
@@ -38,8 +40,12 @@ def basic_collate_fn(
         data_dict,
         extrap=extrap,
         data_type=data_type,
+        hist_feature=hist_feature,
+        fcst_feature=fcst_feature,
+        avail_fcst_feature=avail_fcst_feature,
         observe_stride=observe_stride,
         predict_stride=predict_stride,
+        avail_fcst_stride=avail_fcst_stride,
         observe_steps=observe_steps,
     )
     return data_dict
@@ -115,8 +121,12 @@ def variable_time_collate_fn(
 def split_and_subsample_batch(data_dict,
                               extrap=False,
                               data_type="train",
+                              hist_feature=slice(0, None),
+                              fcst_feature=slice(0, None),
+                              avail_fcst_feature=slice(0, None),
                               observe_stride=1,
                               predict_stride=1,
+                              avail_fcst_stride=1,
                               observe_steps=0.5):
     # if extrap:
     #     processed_dict = split_data_extrap(
@@ -134,8 +144,11 @@ def split_and_subsample_batch(data_dict,
                 data_dict,
                 observe_stride=observe_stride,
                 predict_stride=predict_stride,
-                observe_steps=observe_steps
-            )
+                avail_fcst_stride=avail_fcst_stride,
+                observe_steps=observe_steps,
+                hist_feature=hist_feature,
+                fcst_feature=fcst_feature,
+                avail_fcst_feature=avail_fcst_feature)
         else:
             processed_dict = split_data_interp(data_dict)
     else:
@@ -144,13 +157,14 @@ def split_and_subsample_batch(data_dict,
                 data_dict,
                 observe_stride=observe_stride,
                 predict_stride=predict_stride,
-                observe_steps=observe_steps
-            )
+                avail_fcst_stride=avail_fcst_stride,
+                observe_steps=observe_steps,
+                hist_feature=hist_feature,
+                fcst_feature=fcst_feature,
+                avail_fcst_feature=avail_fcst_feature)
         else:
             processed_dict = split_data_interp(data_dict)
 
-
-    
     # add mask
     processed_dict = add_mask(processed_dict)
     return processed_dict
@@ -303,14 +317,18 @@ def shift_outputs(outputs, first_datapoint=None):
 def split_data_extrap(data_dict,
                       observe_stride=1,
                       predict_stride=1,
-                      observe_steps=100):
+                      avail_fcst_stride=1,
+                      observe_steps=100,
+                      hist_feature=slice(0, None),
+                      fcst_feature=slice(0, None),
+                      avail_fcst_feature=slice(0, None)):
     n_observed_tp = observe_steps
     # n_observed_tp = data_dict["data"].size(1) // 2
 
     split_dict = {
         "observed_data":
-        data_dict["data"][:, :n_observed_tp, :]
-        [:, ::observe_stride, :].clone(),
+        data_dict["data"][:, :n_observed_tp,
+                          hist_feature][:, ::observe_stride, :].clone(),
         "observed_tp":
         data_dict["time_steps"][:, :n_observed_tp]
         [:, ::observe_stride].clone(),
@@ -332,12 +350,16 @@ def split_data_extrap(data_dict,
         # data_dict["time_steps"][:, :][:, ::predict_stride].clone(),
 
         # # Only predict on the future steps (only extrap)
-        "data_to_predict": data_dict["data"][:, n_observed_tp:, :][
-            :, ::predict_stride, :
-        ].clone(),
-        "tp_to_predict": data_dict["time_steps"][:, n_observed_tp:][
-            :, ::predict_stride
-        ].clone(),
+        "data_to_predict":
+        data_dict["data"][:, n_observed_tp:,
+                          fcst_feature][:, ::predict_stride, :].clone(),
+        "available_forecasts":
+        data_dict["data"][:, n_observed_tp:,
+                          avail_fcst_feature][:, ::avail_fcst_stride, :].clone(
+                          ) if avail_fcst_feature is not None else None,
+        "tp_to_predict":
+        data_dict["time_steps"][:,
+                                n_observed_tp:][:, ::predict_stride].clone(),
     }
 
     split_dict["observed_mask"] = None

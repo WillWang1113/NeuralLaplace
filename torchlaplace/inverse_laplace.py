@@ -23,8 +23,7 @@ def real_vector_to_complex(vector):
     if "ComplexDoubleTensor" not in vector.type():
         if len(vector.shape) == 1:
             return torch.view_as_complex(
-                torch.stack((vector, torch.zeros_like(vector)), 1)
-            )
+                torch.stack((vector, torch.zeros_like(vector)), 1))
         else:
             return torch.reshape(
                 torch.view_as_complex(
@@ -34,8 +33,7 @@ def real_vector_to_complex(vector):
                             torch.zeros_like(torch.flatten(vector)),
                         ),
                         1,
-                    )
-                ),
+                    )),
                 vector.shape,
             )
     else:
@@ -50,8 +48,7 @@ def complex_numpy_to_complex_torch(sn):
                 torch.flatten(torch.Tensor(sn.imag)),
             ),
             1,
-        )
-    )
+        ))
 
 
 class InverseLaplaceTransformAlgorithmBase(nn.Module):
@@ -129,8 +126,7 @@ class InverseLaplaceTransformAlgorithmBase(nn.Module):
 
         """
         raise NotImplementedError(
-            "Forward method is not implemented yet for this ILT algorithm"
-        )
+            "Forward method is not implemented yet for this ILT algorithm")
 
     def compute_s(self, ti):
         r"""Computes :math:`\mathbf{s}` to evaluate the Laplace representation :math:`\mathbf{F}(\mathbf{s})` at, from the input time points :math:`t`, using the selected ILT algorithm.
@@ -143,8 +139,7 @@ class InverseLaplaceTransformAlgorithmBase(nn.Module):
 
         """
         raise NotImplementedError(
-            "compute_s method is not implemented yet for this ILT algorithm"
-        )
+            "compute_s method is not implemented yet for this ILT algorithm")
 
     def line_integrate(self, fp, ti):
         r"""Reconstruct trajectories :math:`\mathbf{x}(t)` for `fp`, Laplace representations evaluated at `s` points from the input `ti` points, :math:`t`, using the selected ILT algorithm.
@@ -217,13 +212,15 @@ class FixedTablot(InverseLaplaceTransformAlgorithmBase):
         torch_float_datatype=TORCH_FLOAT_DATATYPE,
         torch_complex_datatype=TORCH_COMPLEX_DATATYPE,
     ):
-        super().__init__(
-            ilt_reconstruction_terms, torch_float_datatype, torch_complex_datatype
-        )
+        super().__init__(ilt_reconstruction_terms, torch_float_datatype,
+                         torch_complex_datatype)
         M = int((ilt_reconstruction_terms - 1) / 2)
         self.M = M
         self.rdt = torch.Tensor([(2.0 / 5.0) * self.M]).to(device)
-        k = torch.arange(1, M, dtype=torch_float_datatype, device=torch.device(device))
+        k = torch.arange(1,
+                         M,
+                         dtype=torch_float_datatype,
+                         device=torch.device(device))
         self.theta = (k * torch.pi) / M
         self.sdt = self.rdt * self.theta * (1 / torch.tan(self.theta) + 1j)
         self.torch_float_datatype = torch_float_datatype
@@ -244,47 +241,31 @@ class FixedTablot(InverseLaplaceTransformAlgorithmBase):
         # fs: C^1 -> C^1
         t = real_vector_to_complex(ti)
         if time_max is not None:
-            self.t_time_max = (
-                real_vector_to_complex(
-                    torch.ones(
-                        t.shape,
-                        dtype=self.torch_float_datatype,
-                        device=torch.device(device),
-                    )
-                )
-                * time_max
-            )
-            s = torch.matmul(1 / self.t_time_max.view(-1, 1), self.sdt.view(1, -1))
-            f0 = (
-                torch.exp((self.rdt * t) / time_max)
-                * fs(self.rdt / self.t_time_max)
-                / 2.0
-            )
+            self.t_time_max = (real_vector_to_complex(
+                torch.ones(
+                    t.shape,
+                    dtype=self.torch_float_datatype,
+                    device=torch.device(device),
+                )) * time_max)
+            s = torch.matmul(1 / self.t_time_max.view(-1, 1),
+                             self.sdt.view(1, -1))
+            f0 = (torch.exp((self.rdt * t) / time_max) *
+                  fs(self.rdt / self.t_time_max) / 2.0)
             fp = torch.reshape(fs(torch.flatten(s)), s.shape)
-            pans = (
-                torch.exp((self.rdt * t) / time_max).view(-1, 1)
-                * fp
-                * (
-                    1.0
-                    + 1j * self.theta * (1.0 + (1 / torch.tan(self.theta) ** 2))
-                    - 1j * (1 / torch.tan(self.theta))
-                )
-            )
+            pans = (torch.exp((self.rdt * t) / time_max).view(-1, 1) * fp *
+                    (1.0 + 1j * self.theta *
+                     (1.0 + (1 / torch.tan(self.theta)**2)) - 1j *
+                     (1 / torch.tan(self.theta))))
             result = (2.0 / 5.0) * (torch.sum(pans, 1) + f0) * (1 / time_max)
             return result.real
         else:
             s = torch.matmul(1 / t.view(-1, 1), self.sdt.view(1, -1))
             f0 = torch.exp(self.rdt) * fs(self.rdt / t) / 2.0
             fp = torch.reshape(fs(torch.flatten(s)), s.shape)
-            pans = (
-                torch.exp(self.sdt)
-                * fp
-                * (
-                    1.0
-                    + 1j * self.theta * (1.0 + (1 / torch.tan(self.theta) ** 2))
-                    - 1j * (1 / torch.tan(self.theta))
-                )
-            )
+            pans = (torch.exp(self.sdt) * fp *
+                    (1.0 + 1j * self.theta *
+                     (1.0 + (1 / torch.tan(self.theta)**2)) - 1j *
+                     (1 / torch.tan(self.theta))))
             result = (2.0 / 5.0) * (torch.sum(pans, 1) + f0) * (1 / t)
             return result.real
 
@@ -302,17 +283,14 @@ class FixedTablot(InverseLaplaceTransformAlgorithmBase):
         # Split of forward into generating s values, then taking function evaluations at s points and integrating along that line
         t = real_vector_to_complex(ti)
         if time_max is not None:
-            self.t_time_max = (
-                real_vector_to_complex(
-                    torch.ones(
-                        t.shape,
-                        dtype=self.torch_float_datatype,
-                        device=torch.device(device),
-                    )
-                )
-                * time_max
-            )
-            s = torch.matmul(1 / self.t_time_max.view(-1, 1), self.sdt.view(1, -1))
+            self.t_time_max = (real_vector_to_complex(
+                torch.ones(
+                    t.shape,
+                    dtype=self.torch_float_datatype,
+                    device=torch.device(device),
+                )) * time_max)
+            s = torch.matmul(1 / self.t_time_max.view(-1, 1),
+                             self.sdt.view(1, -1))
             s0 = self.rdt / self.t_time_max
             return torch.hstack((s0.view(-1, 1), s)), self.rdt / time_max
         else:
@@ -336,28 +314,18 @@ class FixedTablot(InverseLaplaceTransformAlgorithmBase):
         t = real_vector_to_complex(ti)
         if time_max is not None:
             f0 = torch.exp((self.rdt * t) / time_max) * fp[:, 0] / 2.0
-            pans = (
-                torch.exp((self.rdt * t) / time_max).view(-1, 1)
-                * fp[:, 1:]
-                * (
-                    1.0
-                    + 1j * self.theta * (1.0 + (1 / torch.tan(self.theta) ** 2))
-                    - 1j * (1 / torch.tan(self.theta))
-                )
-            )
+            pans = (torch.exp((self.rdt * t) / time_max).view(-1, 1) *
+                    fp[:, 1:] * (1.0 + 1j * self.theta *
+                                 (1.0 + (1 / torch.tan(self.theta)**2)) - 1j *
+                                 (1 / torch.tan(self.theta))))
             result = (2.0 / 5.0) * (torch.sum(pans, 1) + f0) * (1 / time_max)
             return result.real
         else:
             f0 = torch.exp(self.rdt) * fp[:, 0] / 2.0
-            pans = (
-                torch.exp(self.sdt)
-                * fp[:, 1:]
-                * (
-                    1.0
-                    + 1j * self.theta * (1.0 + (1 / torch.tan(self.theta) ** 2))
-                    - 1j * (1 / torch.tan(self.theta))
-                )
-            )
+            pans = (torch.exp(self.sdt) * fp[:, 1:] *
+                    (1.0 + 1j * self.theta *
+                     (1.0 + (1 / torch.tan(self.theta)**2)) - 1j *
+                     (1 / torch.tan(self.theta))))
             result = (2.0 / 5.0) * (torch.sum(pans, 1) + f0) / t
             return result.real
 
@@ -377,28 +345,19 @@ class FixedTablot(InverseLaplaceTransformAlgorithmBase):
         t = real_vector_to_complex(ti)
         if time_max is not None:
             f0 = torch.exp((self.rdt * t) / time_max) * fp[:, :, 0] / 2.0
-            pans = (
-                torch.exp((self.rdt * t) / time_max).view(-1, 1)
-                * fp[:, :, 1:]
-                * (
-                    1.0
-                    + 1j * self.theta * (1.0 + (1 / torch.tan(self.theta) ** 2))
-                    - 1j * (1 / torch.tan(self.theta))
-                )
-            )
+            pans = (torch.exp(
+                (self.rdt * t) / time_max).view(-1, 1) * fp[:, :, 1:] *
+                    (1.0 + 1j * self.theta *
+                     (1.0 + (1 / torch.tan(self.theta)**2)) - 1j *
+                     (1 / torch.tan(self.theta))))
             result = (2.0 / 5.0) * (torch.sum(pans, 2) + f0) * (1 / time_max)
             return result.real
         else:
             f0 = torch.exp(self.rdt) * fp[:, :, 0] / 2.0
-            pans = (
-                torch.exp(self.sdt)
-                * fp[:, :, 1:]
-                * (
-                    1.0
-                    + 1j * self.theta * (1.0 + (1 / torch.tan(self.theta) ** 2))
-                    - 1j * (1 / torch.tan(self.theta))
-                )
-            )
+            pans = (torch.exp(self.sdt) * fp[:, :, 1:] *
+                    (1.0 + 1j * self.theta *
+                     (1.0 + (1 / torch.tan(self.theta)**2)) - 1j *
+                     (1 / torch.tan(self.theta))))
             result = (2.0 / 5.0) * (torch.sum(pans, 2) + f0) / t
             return result.real
 
@@ -429,9 +388,8 @@ class Stehfest(InverseLaplaceTransformAlgorithmBase):
         torch_complex_datatype=TORCH_COMPLEX_DATATYPE,
     ):
         # Also computes each s for each time evaluated at
-        super().__init__(
-            ilt_reconstruction_terms, torch_float_datatype, torch_complex_datatype
-        )
+        super().__init__(ilt_reconstruction_terms, torch_float_datatype,
+                         torch_complex_datatype)
         self.torch_complex_datatype = torch_complex_datatype
         M = int((ilt_reconstruction_terms - 1) / 2)
         self.M = M
@@ -441,12 +399,9 @@ class Stehfest(InverseLaplaceTransformAlgorithmBase):
             self.M += 1
 
         self.V = self._coeff()
-        p_real_dt = (
-            torch.arange(
-                1, M + 1, dtype=torch_float_datatype, device=torch.device(device)
-            )
-            * self.ln2
-        )
+        p_real_dt = (torch.arange(
+            1, M + 1, dtype=torch_float_datatype, device=torch.device(device))
+                     * self.ln2)
         # NB: s is real
         self.sdt = real_vector_to_complex(p_real_dt)
 
@@ -456,9 +411,9 @@ class Stehfest(InverseLaplaceTransformAlgorithmBase):
 
         M2 = int(self.M / 2.0)  # checked earlier that M is even
 
-        V = torch.empty(
-            (self.M,), dtype=self.torch_complex_datatype, device=torch.device(device)
-        )
+        V = torch.empty((self.M, ),
+                        dtype=self.torch_complex_datatype,
+                        device=torch.device(device))
 
         def fac(x):
             return float(factorial(x, exact=True))
@@ -469,17 +424,15 @@ class Stehfest(InverseLaplaceTransformAlgorithmBase):
         # catastrophic cancellation
         for k in range(1, self.M + 1):
             z = torch.zeros(
-                (min(k, M2) + 1,),
+                (min(k, M2) + 1, ),
                 dtype=self.torch_complex_datatype,
                 device=torch.device(device),
             )
             for j in range(int((k + 1) / 2.0), min(k, M2) + 1):
-                z[j] = (
-                    j**M2
-                    * fac(2 * j)
-                    / (fac(M2 - j) * fac(j) * fac(j - 1) * fac(k - j) * fac(2 * j - k))
-                )
-            V[k - 1] = (-1) ** (k + M2) * torch.sum(z)
+                z[j] = (j**M2 * fac(2 * j) /
+                        (fac(M2 - j) * fac(j) * fac(j - 1) * fac(k - j) *
+                         fac(2 * j - k)))
+            V[k - 1] = (-1)**(k + M2) * torch.sum(z)
 
         return V
 
@@ -536,9 +489,8 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
         torch_float_datatype=TORCH_FLOAT_DATATYPE,
         torch_complex_datatype=TORCH_COMPLEX_DATATYPE,
     ):
-        super().__init__(
-            ilt_reconstruction_terms, torch_float_datatype, torch_complex_datatype
-        )
+        super().__init__(ilt_reconstruction_terms, torch_float_datatype,
+                         torch_complex_datatype)
         M = int((ilt_reconstruction_terms - 1) / 2)
         self.M = M
         self.alpha = torch.Tensor([alpha]).to(device)
@@ -568,15 +520,9 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
         T = torch.Tensor([self.scale * tmax]).to(device)
 
         gamma = self.alpha - torch.log(self.tol) / (self.scale * T)
-        s = (
-            gamma
-            + 1j
-            * torch.pi
-            * torch.arange(
-                NT, dtype=self.torch_float_datatype, device=torch.device(device)
-            )
-            / T
-        )
+        s = (gamma + 1j * torch.pi * torch.arange(
+            NT, dtype=self.torch_float_datatype, device=torch.device(device)) /
+             T)
         return s
 
     def fixed_line_integrate(self, fp, ti, time_max):
@@ -604,21 +550,21 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
 
         # would it be useful to try re-using
         # space between e&q ?
-        e = torch.empty(
-            (NT, M + 1), dtype=self.torch_complex_datatype, device=torch.device(device)
-        )
-        q = torch.empty(
-            (2 * M, M), dtype=self.torch_complex_datatype, device=torch.device(device)
-        )
-        d = torch.empty(
-            (NT,), dtype=self.torch_complex_datatype, device=torch.device(device)
-        )
+        e = torch.empty((NT, M + 1),
+                        dtype=self.torch_complex_datatype,
+                        device=torch.device(device))
+        q = torch.empty((2 * M, M),
+                        dtype=self.torch_complex_datatype,
+                        device=torch.device(device))
+        d = torch.empty((NT, ),
+                        dtype=self.torch_complex_datatype,
+                        device=torch.device(device))
 
         es = []
         qs = []
 
         # initialize Q-D table
-        q = fp[1 : 2 * M + 1] / fp[0 : 2 * M]
+        q = fp[1:2 * M + 1] / fp[0:2 * M]
         q[0] = fp[1] / (fp[0] / 2.0)
         qs.append(q)
 
@@ -628,31 +574,29 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
             mr = 2 * (M - r) + 1
             if r == 1:
                 e = torch.zeros(
-                    (NT,),
+                    (NT, ),
                     dtype=self.torch_complex_datatype,
                     device=torch.device(device),
                 )
-                e[0:mr] = qs[r - 1][1 : mr + 1] - qs[r - 1][0:mr]
+                e[0:mr] = qs[r - 1][1:mr + 1] - qs[r - 1][0:mr]
                 es.append(e)
             else:
                 e = torch.zeros(
-                    (NT,),
+                    (NT, ),
                     dtype=self.torch_complex_datatype,
                     device=torch.device(device),
                 )
-                e[0:mr] = (
-                    qs[r - 1][1 : mr + 1] - qs[r - 1][0:mr] + es[r - 2][1 : mr + 1]
-                )
+                e[0:mr] = (qs[r - 1][1:mr + 1] - qs[r - 1][0:mr] +
+                           es[r - 2][1:mr + 1])
                 es.append(e)
             if not r == M:
                 q = torch.zeros(
-                    (2 * M,),
+                    (2 * M, ),
                     dtype=self.torch_complex_datatype,
                     device=torch.device(device),
                 )
-                q[0:mr] = (
-                    qs[r - 1][1 : mr + 1] * es[r - 1][1 : mr + 1] / es[r - 1][0:mr]
-                )
+                q[0:mr] = (qs[r - 1][1:mr + 1] * es[r - 1][1:mr + 1] /
+                           es[r - 1][0:mr])
                 qs.append(q)
 
         # build up continued fraction coefficients (d)
@@ -719,11 +663,10 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
         gamma = self.alpha - torch.log(self.tol) / (self.scale * T)
         si = torch.matmul(
             1 / T.view(-1, 1),
-            1j
-            * torch.pi
-            * torch.arange(
-                NT, dtype=self.torch_float_datatype, device=torch.device(device)
-            ).view(1, -1),
+            1j * torch.pi *
+            torch.arange(NT,
+                         dtype=self.torch_float_datatype,
+                         device=torch.device(device)).view(1, -1),
         )
         return gamma.view(-1, 1) + si, T
 
@@ -772,7 +715,7 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
         qs = []
 
         # initialize Q-D table
-        q = fp[:, 1 : 2 * M + 1] / fp[:, 0 : 2 * M]
+        q = fp[:, 1:2 * M + 1] / fp[:, 0:2 * M]
         q[:, 0] = fp[:, 1] / (fp[:, 0] / 2.0)
         qs.append(q)
 
@@ -789,7 +732,7 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
                     dtype=self.torch_complex_datatype,
                     device=torch.device(device),
                 )
-                e[:, 0:mr] = qs[r - 1][:, 1 : mr + 1] - qs[r - 1][:, 0:mr]
+                e[:, 0:mr] = qs[r - 1][:, 1:mr + 1] - qs[r - 1][:, 0:mr]
                 es.append(e)
             else:
                 e = torch.zeros(
@@ -800,11 +743,8 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
                     dtype=self.torch_complex_datatype,
                     device=torch.device(device),
                 )
-                e[:, 0:mr] = (
-                    qs[r - 1][:, 1 : mr + 1]
-                    - qs[r - 1][:, 0:mr]
-                    + es[r - 2][:, 1 : mr + 1]
-                )
+                e[:, 0:mr] = (qs[r - 1][:, 1:mr + 1] - qs[r - 1][:, 0:mr] +
+                              es[r - 2][:, 1:mr + 1])
                 es.append(e)
             if not r == M:
                 q = torch.zeros(
@@ -815,11 +755,8 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
                     dtype=self.torch_complex_datatype,
                     device=torch.device(device),
                 )
-                q[:, 0:mr] = (
-                    qs[r - 1][:, 1 : mr + 1]
-                    * es[r - 1][:, 1 : mr + 1]
-                    / es[r - 1][:, 0:mr]
-                )
+                q[:, 0:mr] = (qs[r - 1][:, 1:mr + 1] * es[r - 1][:, 1:mr + 1] /
+                              es[r - 1][:, 0:mr])
                 qs.append(q)
 
         # build up continued fraction coefficients (d)
@@ -885,7 +822,8 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
         for traj in fp:
             data_dims = []
             for data_dim_idx in range(fp.shape[2]):
-                data_dims.append(self.line_integrate(traj[:, data_dim_idx, :], ti, T))
+                data_dims.append(
+                    self.line_integrate(traj[:, data_dim_idx, :], ti, T))
             samples.append(torch.stack(data_dims, 1))
         return torch.stack(samples)
 
@@ -922,11 +860,10 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
         gamma = self.alpha - torch.log(self.tol) / (self.scale * T)
         si = torch.matmul(
             1 / T.view(-1, 1),
-            1j
-            * torch.pi
-            * torch.arange(
-                NT, dtype=self.torch_float_datatype, device=torch.device(device)
-            ).view(1, -1),
+            1j * torch.pi *
+            torch.arange(NT,
+                         dtype=self.torch_float_datatype,
+                         device=torch.device(device)).view(1, -1),
         )
         fp = fs(gamma.view(-1, 1) + si)
 
@@ -955,7 +892,7 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
         qs = []
 
         # initialize Q-D table
-        q = fp[:, 1 : 2 * M + 1] / fp[:, 0 : 2 * M]
+        q = fp[:, 1:2 * M + 1] / fp[:, 0:2 * M]
         q[:, 0] = fp[:, 1] / (fp[:, 0] / 2.0)
         qs.append(q)
 
@@ -972,7 +909,7 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
                     dtype=self.torch_complex_datatype,
                     device=torch.device(device),
                 )
-                e[:, 0:mr] = qs[r - 1][:, 1 : mr + 1] - qs[r - 1][:, 0:mr]
+                e[:, 0:mr] = qs[r - 1][:, 1:mr + 1] - qs[r - 1][:, 0:mr]
                 es.append(e)
             else:
                 e = torch.zeros(
@@ -983,11 +920,8 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
                     dtype=self.torch_complex_datatype,
                     device=torch.device(device),
                 )
-                e[:, 0:mr] = (
-                    qs[r - 1][:, 1 : mr + 1]
-                    - qs[r - 1][:, 0:mr]
-                    + es[r - 2][:, 1 : mr + 1]
-                )
+                e[:, 0:mr] = (qs[r - 1][:, 1:mr + 1] - qs[r - 1][:, 0:mr] +
+                              es[r - 2][:, 1:mr + 1])
                 es.append(e)
             if not r == M:
                 q = torch.zeros(
@@ -998,11 +932,8 @@ class DeHoog(InverseLaplaceTransformAlgorithmBase):
                     dtype=self.torch_complex_datatype,
                     device=torch.device(device),
                 )
-                q[:, 0:mr] = (
-                    qs[r - 1][:, 1 : mr + 1]
-                    * es[r - 1][:, 1 : mr + 1]
-                    / es[r - 1][:, 0:mr]
-                )
+                q[:, 0:mr] = (qs[r - 1][:, 1:mr + 1] * es[r - 1][:, 1:mr + 1] /
+                              es[r - 1][:, 0:mr])
                 qs.append(q)
 
         # build up continued fraction coefficients (d)
@@ -1094,14 +1025,13 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         tol=1e-8,
         scale=2.0,
         eps=1e-6,
-        start_k = 0,
+        start_k=0,
         torch_float_datatype=TORCH_FLOAT_DATATYPE,
         torch_complex_datatype=TORCH_COMPLEX_DATATYPE,
     ):
         # Unaccelerated Fourier Estimate of DeHoog (Ref: F. R. DE HOOG, J. H. KNIGHT AND A. N. STOKES, p. 360)
-        super().__init__(
-            ilt_reconstruction_terms, torch_float_datatype, torch_complex_datatype
-        )
+        super().__init__(ilt_reconstruction_terms, torch_float_datatype,
+                         torch_complex_datatype)
         M = int((ilt_reconstruction_terms - 1) / 2)
         self.M = M
         self.alpha = torch.Tensor([alpha]).to(device)
@@ -1113,8 +1043,10 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         self.nt = ilt_reconstruction_terms  # number of terms in approximation
         # scaling factor (likely tune-able, but 2 is typical)
         self.scale = torch.Tensor([scale]).to(device)
-        self.k = torch.arange(start=start_k, end=start_k+self.nt, dtype=torch_float_datatype, device=torch.device(device)
-        )
+        self.k = torch.arange(start=start_k,
+                              end=start_k + self.nt,
+                              dtype=torch_float_datatype,
+                              device=torch.device(device))
         self.eps = eps
         self.torch_float_datatype = torch_float_datatype
 
@@ -1143,7 +1075,8 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         else:
             T = (tmax * self.scale).to(self.torch_complex_datatype)
         gamma = self.alpha - torch.log(self.tol) / (self.scale * T)
-        si = torch.matmul(1 / T.view(-1, 1), 1j * torch.pi * self.k.view(1, -1))
+        si = torch.matmul(1 / T.view(-1, 1),
+                          1j * torch.pi * self.k.view(1, -1))
         return gamma.view(-1, 1) + si, T
 
     def line_integrate(self, fp, ti, T):
@@ -1162,22 +1095,12 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         """
         t = real_vector_to_complex(ti)
         gamma = self.alpha - torch.log(self.tol) / (self.scale * T)
-        return (
-            (1 / T)
-            * torch.exp(gamma * t)
-            * (
-                fp[:, 0] / 2.0
-                + torch.sum(
-                    fp[:, 1:]
-                    * torch.exp(
-                        torch.matmul(
-                            (t / T).view(-1, 1), 1j * self.k[1:].view(1, -1) * torch.pi
-                        )
-                    ),
-                    1,
-                )
-            )
-        ).real
+        return ((1 / T) * torch.exp(gamma * t) * (fp[:, 0] / 2.0 + torch.sum(
+            fp[:, 1:] * torch.exp(
+                torch.matmul((t / T).view(-1, 1),
+                             1j * self.k[1:].view(1, -1) * torch.pi)),
+            1,
+        ))).real
 
     def line_integrate_all_multi(self, fp, ti, T):
         r"""Reconstruct trajectories :math:`\mathbf{x}(t)` for `fp`, Laplace representations evaluated at `s` points from the input `ti` points, :math:`t`, using the selected ILT algorithm (takes batch input of `fp`).
@@ -1201,21 +1124,14 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         # [batch, times, data_dims]
         t = real_vector_to_complex(ti)  # Could be slowing down ?
         gamma = self.alpha - torch.log(self.tol) / (self.scale * T)
-        return (
-            ((1 / T) * torch.exp(gamma * t)).view(1, -1, 1)
-            * (
-                fp[:, :, :, 0] / 2.0
-                + torch.sum(
-                    fp[:, :, :, 1:]
-                    * torch.exp(
+        return (((1 / T) * torch.exp(gamma * t)).view(1, -1, 1) *
+                (fp[:, :, :, 0] / 2.0 + torch.sum(
+                    fp[:, :, :, 1:] * torch.exp(
                         torch.matmul(
-                            (t / T).view(-1, 1), 1j * self.k[1:].view(1, -1) * torch.pi
-                        )
-                    ).view(fp.shape[1], 1, fp.shape[3] - 1),
+                            (t / T).view(-1, 1), 1j * self.k[1:].view(1, -1) *
+                            torch.pi)).view(fp.shape[1], 1, fp.shape[3] - 1),
                     3,
-                )
-            )
-        ).real
+                ))).real
 
     def line_integrate_all_multi_batch_time(self, fp, ti, T):
         r"""Reconstruct trajectories :math:`\mathbf{x}(t)` for `fp`, Laplace representations evaluated at `s` points from the input `ti` points, :math:`t`, using the selected ILT algorithm (takes batch input of `fp`).
@@ -1239,21 +1155,16 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         # [batch, times, data_dims]
         t = real_vector_to_complex(ti)  # Could be slowing down ?
         gamma = self.alpha - torch.log(self.tol) / (self.scale * T)
-        return (
-            ((1 / T) * torch.exp(gamma * t)).view(fp.shape[0], fp.shape[1], 1)
-            * (
-                fp[:, :, :, 0] / 2.0
-                + torch.sum(
-                    fp[:, :, :, 1:]
-                    * torch.exp(
+        return ((
+            (1 / T) * torch.exp(gamma * t)).view(fp.shape[0], fp.shape[1], 1) *
+                (fp[:, :, :, 0] / 2.0 + torch.sum(
+                    fp[:, :, :, 1:] * torch.exp(
                         torch.matmul(
-                            (t / T).view(-1, 1), 1j * self.k[1:].view(1, -1) * torch.pi
-                        )
-                    ).view(fp.shape[0], fp.shape[1], 1, fp.shape[3] - 1),
+                            (t / T).view(-1, 1),
+                            1j * self.k[1:].view(1, -1) * torch.pi)).view(
+                                fp.shape[0], fp.shape[1], 1, fp.shape[3] - 1),
                     3,
-                )
-            )
-        ).real
+                ))).real
 
     def line_integrate_multi(self, fp, ti, T):
         r"""Reconstruct trajectories :math:`\mathbf{x}(t)` for `fp`, Laplace representations evaluated at `s` points from the input `ti` points, :math:`t`, using the selected ILT algorithm.
@@ -1271,22 +1182,13 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         """
         t = real_vector_to_complex(ti)
         gamma = self.alpha - torch.log(self.tol) / (self.scale * T)
-        return (
-            (1 / T)
-            * torch.exp(gamma * t)
-            * (
-                fp[:, :, 0] / 2.0
-                + torch.sum(
-                    fp[:, :, 1:]
-                    * torch.exp(
-                        torch.matmul(
-                            (t / T).view(-1, 1), 1j * self.k[1:].view(1, -1) * torch.pi
-                        )
-                    ),
+        return ((1 / T) * torch.exp(gamma * t) *
+                (fp[:, :, 0] / 2.0 + torch.sum(
+                    fp[:, :, 1:] * torch.exp(
+                        torch.matmul((t / T).view(-1, 1),
+                                     1j * self.k[1:].view(1, -1) * torch.pi)),
                     2,
-                )
-            )
-        ).real
+                ))).real
 
     def forward(self, fs, ti, time_max=None, Ti=None):
         r"""Reconstructs a trajectory :math:`\mathbf{x}(t)` for a Laplace representation :math:`\mathbf{F}(\mathbf{s})`, at time points :math:`t`.
@@ -1315,24 +1217,15 @@ class Fourier(InverseLaplaceTransformAlgorithmBase):
         else:
             T = (tmax * self.scale).to(self.torch_complex_datatype)
         gamma = self.alpha - torch.log(self.tol) / (self.scale * T)
-        si = torch.matmul(1 / T.view(-1, 1), 1j * torch.pi * self.k.view(1, -1))
+        si = torch.matmul(1 / T.view(-1, 1),
+                          1j * torch.pi * self.k.view(1, -1))
         fp = fs(gamma.view(-1, 1) + si)
-        return (
-            (1 / T)
-            * torch.exp(gamma * t)
-            * (
-                fp[:, 0] / 2.0
-                + torch.sum(
-                    fp[:, 1:]
-                    * torch.exp(
-                        torch.matmul(
-                            (t / T).view(-1, 1), 1j * self.k[1:].view(1, -1) * torch.pi
-                        )
-                    ),
-                    1,
-                )
-            )
-        ).real
+        return ((1 / T) * torch.exp(gamma * t) * (fp[:, 0] / 2.0 + torch.sum(
+            fp[:, 1:] * torch.exp(
+                torch.matmul((t / T).view(-1, 1),
+                             1j * self.k[1:].view(1, -1) * torch.pi)),
+            1,
+        ))).real
 
 
 class Gaver(InverseLaplaceTransformAlgorithmBase):
@@ -1365,9 +1258,8 @@ class Gaver(InverseLaplaceTransformAlgorithmBase):
         torch_float_datatype=TORCH_FLOAT_DATATYPE,
         torch_complex_datatype=TORCH_COMPLEX_DATATYPE,
     ):
-        super().__init__(
-            ilt_reconstruction_terms, torch_float_datatype, torch_complex_datatype
-        )
+        super().__init__(ilt_reconstruction_terms, torch_float_datatype,
+                         torch_complex_datatype)
         M = int((ilt_reconstruction_terms - 1) / 2)
         self.M = M
         max_fn_evals = ilt_reconstruction_terms
@@ -1377,27 +1269,22 @@ class Gaver(InverseLaplaceTransformAlgorithmBase):
         eta = np.zeros(max_fn_evals)
         beta = np.zeros(max_fn_evals)
         logsum = np.concatenate(
-            ([0], np.cumsum(np.log(np.arange(1, max_fn_evals + 1))))
-        )
+            ([0], np.cumsum(np.log(np.arange(1, max_fn_evals + 1)))))
         for k in range(1, max_fn_evals + 1):
             inside_sum = 0.0
-            for j in range(np.floor((k + 1) / 2).astype(np.int32), min(k, ndiv2) + 1):
-                inside_sum += np.exp(
-                    (ndiv2 + 1) * np.log(j)
-                    - logsum[ndiv2 - j]
-                    + logsum[2 * j]
-                    - 2 * logsum[j]
-                    - logsum[k - j]
-                    - logsum[2 * j - k]
-                )
-            eta[k - 1] = np.log(2.0) * (-1) ** (k + ndiv2) * inside_sum
+            for j in range(
+                    np.floor((k + 1) / 2).astype(np.int32),
+                    min(k, ndiv2) + 1):
+                inside_sum += np.exp((ndiv2 + 1) * np.log(j) -
+                                     logsum[ndiv2 - j] + logsum[2 * j] -
+                                     2 * logsum[j] - logsum[k - j] -
+                                     logsum[2 * j - k])
+            eta[k - 1] = np.log(2.0) * (-1)**(k + ndiv2) * inside_sum
             beta[k - 1] = k * np.log(2.0)
-        self.eta = (
-            complex_numpy_to_complex_torch(eta).to(torch_complex_datatype).to(device)
-        )
-        self.beta = (
-            complex_numpy_to_complex_torch(beta).to(torch_complex_datatype).to(device)
-        )
+        self.eta = (complex_numpy_to_complex_torch(eta).to(
+            torch_complex_datatype).to(device))
+        self.beta = (complex_numpy_to_complex_torch(beta).to(
+            torch_complex_datatype).to(device))
 
     def compute_s(self, ti):
         t = real_vector_to_complex(ti)
@@ -1416,9 +1303,8 @@ class Gaver(InverseLaplaceTransformAlgorithmBase):
         # Returns
         # [batch, times, data_dims]
         # t = real_vector_to_complex(ti)
-        return (
-            (1 / T).view(1, -1, 1) * torch.matmul(fp, self.eta.view(-1, 1)).squeeze(-1)
-        ).real
+        return ((1 / T).view(1, -1, 1) *
+                torch.matmul(fp, self.eta.view(-1, 1)).squeeze(-1)).real
 
     def line_integrate_all_multi_batch_time(self, fp, ti, T):
         r"""Reconstruct trajectories :math:`\mathbf{x}(t)` for `fp`, Laplace representations evaluated at `s` points from the input `ti` points, :math:`t`, using the selected ILT algorithm (takes batch input of `fp`).
@@ -1440,12 +1326,9 @@ class Gaver(InverseLaplaceTransformAlgorithmBase):
         # T [times]
         # Returns
         # [batch, times, data_dims]
-        return (
-            (1 / T).view(T.shape[0], T.shape[1], 1)
-            * torch.matmul(fp, self.eta.view(-1, 1)).view(
-                fp.shape[0], fp.shape[1], fp.shape[2]
-            )
-        ).real
+        return ((1 / T).view(T.shape[0], T.shape[1], 1) *
+                torch.matmul(fp, self.eta.view(-1, 1)).view(
+                    fp.shape[0], fp.shape[1], fp.shape[2])).real
 
     def forward(self, fs, ti):
         # fs: C^1 -> C^1
@@ -1484,35 +1367,32 @@ class Euler(InverseLaplaceTransformAlgorithmBase):
         torch_float_datatype=TORCH_FLOAT_DATATYPE,
         torch_complex_datatype=TORCH_COMPLEX_DATATYPE,
     ):
-        super().__init__(
-            ilt_reconstruction_terms, torch_float_datatype, torch_complex_datatype
-        )
+        super().__init__(ilt_reconstruction_terms, torch_float_datatype,
+                         torch_complex_datatype)
         M = int((ilt_reconstruction_terms - 1) / 2)
         self.M = M
         max_fn_evals = ilt_reconstruction_terms
         n_euler = np.floor((max_fn_evals - 1) / 2).astype(np.int32)
-        end_element = torch.tensor(
-            [2.0], dtype=self.torch_float_datatype, device=torch.device(device)
-        )
+        end_element = torch.tensor([2.0],
+                                   dtype=self.torch_float_datatype,
+                                   device=torch.device(device))
         end_element = end_element.pow(-n_euler)
-        eta = torch.concat(
-            (
-                torch.tensor(
-                    [0.5], dtype=self.torch_float_datatype, device=torch.device(device)
-                ),
-                torch.ones(
-                    n_euler,
-                    dtype=self.torch_complex_datatype,
-                    device=torch.device(device),
-                ),
-                torch.zeros(
-                    n_euler - 1,
-                    dtype=self.torch_complex_datatype,
-                    device=torch.device(device),
-                ),
-                end_element,
-            )
-        )
+        eta = torch.concat((
+            torch.tensor([0.5],
+                         dtype=self.torch_float_datatype,
+                         device=torch.device(device)),
+            torch.ones(
+                n_euler,
+                dtype=self.torch_complex_datatype,
+                device=torch.device(device),
+            ),
+            torch.zeros(
+                n_euler - 1,
+                dtype=self.torch_complex_datatype,
+                device=torch.device(device),
+            ),
+            end_element,
+        ))
         logsum = torch.cumsum(
             torch.log(
                 torch.arange(
@@ -1520,38 +1400,26 @@ class Euler(InverseLaplaceTransformAlgorithmBase):
                     n_euler + 1,
                     dtype=torch_float_datatype,
                     device=torch.device(device),
-                )
-            ),
+                )),
             dim=0,
         )
         for k in torch.arange(1, n_euler, device=torch.device(device)):
             eta[2 * n_euler - k] = eta[2 * n_euler - k + 1] + torch.exp(
-                logsum[n_euler - 1]
-                - n_euler
-                * torch.log(
+                logsum[n_euler - 1] - n_euler * torch.log(
                     torch.tensor(
                         2.0,
                         dtype=self.torch_float_datatype,
                         device=torch.device(device),
-                    )
-                )
-                - logsum[k - 1]
-                - logsum[n_euler - k - 1]
-            )
+                    )) - logsum[k - 1] - logsum[n_euler - k - 1])
         k = torch.arange(2 * n_euler + 1, device=torch.device(device))
-        beta = (
-            n_euler
-            * torch.log(
-                torch.tensor(
-                    10.0, dtype=self.torch_float_datatype, device=torch.device(device)
-                )
-            )
-            / 3.0
-            + 1j * torch.pi * k
-        )
-        final_element = torch.tensor(
-            10.0, dtype=self.torch_float_datatype, device=torch.device(device)
-        )
+        beta = (n_euler * torch.log(
+            torch.tensor(10.0,
+                         dtype=self.torch_float_datatype,
+                         device=torch.device(device))) / 3.0 +
+                1j * torch.pi * k)
+        final_element = torch.tensor(10.0,
+                                     dtype=self.torch_float_datatype,
+                                     device=torch.device(device))
         final_element = final_element.pow((n_euler) / 3.0)
         eta = final_element * (1 - (k % 2) * 2) * eta
         self.eta = eta.detach().to(torch_complex_datatype)
@@ -1587,9 +1455,8 @@ class Euler(InverseLaplaceTransformAlgorithmBase):
         # Returns
         # [batch, times, data_dims]
         # t = real_vector_to_complex(ti)
-        return (
-            (1 / T).view(1, -1, 1) * torch.matmul(fp, self.eta.view(-1, 1)).squeeze(-1)
-        ).real
+        return ((1 / T).view(1, -1, 1) *
+                torch.matmul(fp, self.eta.view(-1, 1)).squeeze(-1)).real
 
     def line_integrate_all_multi_batch_time(self, fp, ti, T):
         r"""Reconstruct trajectories :math:`\mathbf{x}(t)` for `fp`, Laplace representations evaluated at `s` points from the input `ti` points, :math:`t`, using the selected ILT algorithm (takes batch input of `fp`).
@@ -1611,12 +1478,9 @@ class Euler(InverseLaplaceTransformAlgorithmBase):
         # T [times]
         # Returns
         # [batch, times, data_dims]
-        return (
-            (1 / T).view(T.shape[0], T.shape[1], 1)
-            * torch.matmul(fp, self.eta.view(-1, 1)).view(
-                fp.shape[0], fp.shape[1], fp.shape[2]
-            )
-        ).real
+        return ((1 / T).view(T.shape[0], T.shape[1], 1) *
+                torch.matmul(fp, self.eta.view(-1, 1)).view(
+                    fp.shape[0], fp.shape[1], fp.shape[2])).real
 
     def forward(self, fs, ti):
         # fs: C^1 -> C^1
@@ -1658,9 +1522,8 @@ class CME(InverseLaplaceTransformAlgorithmBase):
         torch_float_datatype=TORCH_FLOAT_DATATYPE,
         torch_complex_datatype=TORCH_COMPLEX_DATATYPE,
     ):
-        super().__init__(
-            ilt_reconstruction_terms, torch_float_datatype, torch_complex_datatype
-        )
+        super().__init__(ilt_reconstruction_terms, torch_float_datatype,
+                         torch_complex_datatype)
         M = int((ilt_reconstruction_terms - 1) / 2)
         self.M = M
         cme_params = cme_params_factory()
@@ -1669,24 +1532,15 @@ class CME(InverseLaplaceTransformAlgorithmBase):
         for p in cme_params:
             if p["cv2"] < params["cv2"] and p["n"] + 1 <= max_fn_evals:
                 params = p
-        eta = (
-            np.concatenate(
-                ([params["c"]], np.array(params["a"]) + 1j * np.array(params["b"]))
-            )
-            * params["mu1"]
-        )
-        beta = (
-            np.concatenate(
-                ([1], 1 + 1j * np.arange(1, params["n"] + 1) * params["omega"])
-            )
-            * params["mu1"]
-        )
-        self.eta = (
-            complex_numpy_to_complex_torch(eta).to(torch_complex_datatype).to(device)
-        )
-        self.beta = (
-            complex_numpy_to_complex_torch(beta).to(torch_complex_datatype).to(device)
-        )
+        eta = (np.concatenate(([params["c"]], np.array(params["a"]) +
+                               1j * np.array(params["b"]))) * params["mu1"])
+        beta = (np.concatenate(
+            ([1], 1 + 1j * np.arange(1, params["n"] + 1) * params["omega"])) *
+                params["mu1"])
+        self.eta = (complex_numpy_to_complex_torch(eta).to(
+            torch_complex_datatype).to(device))
+        self.beta = (complex_numpy_to_complex_torch(beta).to(
+            torch_complex_datatype).to(device))
 
     def compute_s(self, ti):
         t = real_vector_to_complex(ti)
@@ -1705,9 +1559,8 @@ class CME(InverseLaplaceTransformAlgorithmBase):
         # Returns
         # [batch, times, data_dims]
         # t = real_vector_to_complex(ti)
-        return (
-            (1 / T).view(1, -1, 1) * torch.matmul(fp, self.eta.view(-1, 1)).squeeze(-1)
-        ).real
+        return ((1 / T).view(1, -1, 1) *
+                torch.matmul(fp, self.eta.view(-1, 1)).squeeze(-1)).real
 
     def line_integrate_all_multi_batch_time(self, fp, ti, T):
         r"""Reconstruct trajectories :math:`\mathbf{x}(t)` for `fp`, Laplace representations evaluated at `s` points from the input `ti` points, :math:`t`, using the selected ILT algorithm (takes batch input of `fp`).
@@ -1729,12 +1582,9 @@ class CME(InverseLaplaceTransformAlgorithmBase):
         # T [times]
         # Returns
         # [batch, times, data_dims]
-        return (
-            (1 / T).view(T.shape[0], T.shape[1], 1)
-            * torch.matmul(fp, self.eta.view(-1, 1)).view(
-                fp.shape[0], fp.shape[1], fp.shape[2]
-            )
-        ).real
+        return ((1 / T).view(T.shape[0], T.shape[1], 1) *
+                torch.matmul(fp, self.eta.view(-1, 1)).view(
+                    fp.shape[0], fp.shape[1], fp.shape[2])).real
 
     def forward(self, fs, ti):
         # fs: C^1 -> C^1
@@ -1766,196 +1616,177 @@ if __name__ == "__main__":
 
     # Evaluate s points per time input (Default, as more accurate inversion)
 
-    decoder = FixedTablot(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = FixedTablot(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     f_hat_t = decoder(fs, t)
-    print(
-        "FixedTablot Loss:\t{}\t\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("FixedTablot Loss:\t{}\t\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
     # Split evaluation of s points out from that of the line integral (should be the exact same result as above)
-    decoder = FixedTablot(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = FixedTablot(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     s, _ = decoder.compute_s(t)
     fh = fs(s)
     f_hat_t = decoder.line_integrate(fh, t)
-    print(
-        "FixedTablot Loss (Split apart):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("FixedTablot Loss (Split apart):\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
-    decoder = FixedTablot(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = FixedTablot(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     s, _ = decoder.compute_s(t, time_max=torch.max(t))
     fh = fs(s)
     f_hat_t = decoder.line_integrate(fh, t, time_max=t.max().item())
-    print(
-        "FixedTablot Loss (Split apart, Fixed Max Time):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("FixedTablot Loss (Split apart, Fixed Max Time):\t{}\t| time: {}".
+          format(np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+                 time() - t0))
 
     # Evaluate s points for one fixed time, maximum time (Less accurate, maybe more stable ?)
 
-    decoder = FixedTablot(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = FixedTablot(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     f_hat_t = decoder(fs, t, time_max=torch.max(t))
-    print(
-        "FixedTablot Loss (Fixed Max Time):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("FixedTablot Loss (Fixed Max Time):\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
     # Stehfest - Increasing degree here, introduces numerical error that increases larger than other methods, therefore for high degree becomes unstable
 
-    decoder = Stehfest(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = Stehfest(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     f_hat_t = decoder(fs, t)
-    print(
-        "Stehfest Loss:\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("Stehfest Loss:\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
-    decoder = Stehfest(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = Stehfest(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     s = decoder.compute_s(t)
     fh = fs(s)
     f_hat_t = decoder.line_integrate(fh, t)
-    print(
-        "Stehfest Loss (Split apart):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("Stehfest Loss (Split apart):\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
     # Fourier (Un accelerated DeHoog)
-    decoder = Fourier(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = Fourier(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     f_hat_t = decoder(fs, t)
-    print(
-        "Fourier (Un accelerated DeHoog) Loss:\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("Fourier (Un accelerated DeHoog) Loss:\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
-    decoder = Fourier(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = Fourier(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     s, T = decoder.compute_s(t)
     fh = fs(s)
     f_hat_t = decoder.line_integrate(fh, t, T)
     print(
-        "Fourier (Un accelerated DeHoog) Loss (Split apart):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+        "Fourier (Un accelerated DeHoog) Loss (Split apart):\t{}\t| time: {}".
+        format(np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+               time() - t0))
 
     # DeHoog
 
-    decoder = DeHoog(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = DeHoog(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     f_hat_t = decoder(fs, t)
-    print(
-        "DeHoog Loss:\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("DeHoog Loss:\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
     # Split evaluation of s points out from that of the line integral (should be the exact same result as above)
-    decoder = DeHoog(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = DeHoog(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     s, T = decoder.compute_s(t)
     fh = fs(s)
     f_hat_t = decoder.line_integrate(fh, t, T)
-    print(
-        "DeHoog Loss (Split apart):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("DeHoog Loss (Split apart):\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
     # Single line integral
-    decoder = DeHoog(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = DeHoog(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     s = decoder.compute_fixed_s(torch.max(t))
     fh = fs(s)
     f_hat_t = decoder.fixed_line_integrate(fh, t, torch.max(t))
-    print(
-        "DeHoog Loss (Fixed Line Integrate):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("DeHoog Loss (Fixed Line Integrate):\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
-    decoder = DeHoog(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = DeHoog(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     f_hat_t = decoder(fs, t, time_max=torch.max(t))
-    print(
-        "DeHoog Loss (Fixed Max Time):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("DeHoog Loss (Fixed Max Time):\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
     # CME
     decoder = CME(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     f_hat_t = decoder(fs, t)
-    print(
-        "CME Loss:\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("CME Loss:\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
     decoder = CME(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     s, T = decoder.compute_s(t)
     fh = fs(s)
     f_hat_t = decoder.line_integrate(fh, t)
-    print(
-        "CME Loss (Split apart):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("CME Loss (Split apart):\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
     # Euler
-    decoder = Euler(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = Euler(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     f_hat_t = decoder(fs, t)
-    print(
-        "Euler Loss:\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("Euler Loss:\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
-    decoder = Euler(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = Euler(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     s, T = decoder.compute_s(t)
     fh = fs(s)
     f_hat_t = decoder.line_integrate(fh, t)
-    print(
-        "Euler Loss (Split apart):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("Euler Loss (Split apart):\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
     # Gaver
-    decoder = Gaver(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = Gaver(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     f_hat_t = decoder(fs, t)
-    print(
-        "Gaver Loss:\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("Gaver Loss:\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
 
-    decoder = Gaver(ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
+    decoder = Gaver(
+        ilt_reconstruction_terms=ILT_RECONSTRUCTION_TERMS).to(device)
     t0 = time()
     s, T = decoder.compute_s(t)
     fh = fs(s)
     f_hat_t = decoder.line_integrate(fh, t)
-    print(
-        "Gaver Loss (Split apart):\t{}\t| time: {}".format(
-            np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()), time() - t0
-        )
-    )
+    print("Gaver Loss (Split apart):\t{}\t| time: {}".format(
+        np.sqrt(torch.nn.MSELoss()(ft(t), f_hat_t).cpu().numpy()),
+        time() - t0))
     print("Done")
